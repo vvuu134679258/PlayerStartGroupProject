@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>队伍出生点编辑 Demo</title>
+  <style>
+    :root {
+      --page: #101725;
+      --surface: #182235;
+      --surface-2: #202d44;
+      --line: #33445f;
+      --text: #eef4ff;
+      --muted: #9eb0cc;
+      --blue: #63a8ff;
+      --blue-deep: #264d85;
+      --orange: #ffb35c;
+      --orange-deep: #774a1d;
+      --danger: #ff7373;
+      --grid: rgba(145, 177, 223, .11);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      background: var(--page);
+      color: var(--text);
+      font: 14px/1.45 Inter, "Microsoft YaHei", system-ui, sans-serif;
+    }
+
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 16px 22px;
+      border-bottom: 1px solid var(--line);
+      background: #141e2e;
+    }
+
+    .title-wrap h1 { margin: 0; font-size: 18px; font-weight: 650; }
+    .title-wrap p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    .btn {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 8px 11px;
+      background: var(--surface-2);
+      color: var(--text);
+    }
+    .btn:hover { border-color: #6c86ae; }
+    .btn.primary { background: var(--blue-deep); border-color: #4f89d7; }
+    .btn.orange { background: var(--orange-deep); border-color: #c68a48; }
+    .btn.danger { color: #ffd0d0; border-color: #85444c; background: #45282e; }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+    .workspace {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 285px;
+    }
+
+    .map-wrap {
+      min-height: 0;
+      padding: 18px;
+    }
+
+    .map {
+      position: relative;
+      min-height: 590px;
+      height: calc(100vh - 105px);
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background-color: #162238;
+      background-image:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px),
+        radial-gradient(ellipse at 35% 32%, rgba(90, 130, 183, .15), transparent 45%),
+        radial-gradient(ellipse at 78% 72%, rgba(83, 142, 128, .13), transparent 44%);
+      background-size: 32px 32px, 32px 32px, auto, auto;
+      background-position: 0 0, 0 0, center, center;
+      cursor: grab;
+    }
+
+    .scene {
+      position: absolute;
+      inset: 0;
+      transform-origin: 0 0;
+    }
+
+    .map.is-panning { cursor: grabbing; }
+
+    .map::before {
+      content: "地图编辑区域";
+      position: absolute;
+      left: 18px;
+      top: 14px;
+      color: rgba(221, 233, 250, .48);
+      letter-spacing: .1em;
+      font-size: 11px;
+      pointer-events: none;
+    }
+
+    .entity {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      display: grid;
+      place-items: center;
+      user-select: none;
+      touch-action: none;
+      cursor: grab;
+    }
+
+    .entity.selected { z-index: 3; }
+    .entity.selected::after {
+      content: "";
+      position: absolute;
+      inset: -7px;
+      border: 2px solid #e6f0ff;
+      border-radius: 10px;
+      box-shadow: 0 0 0 3px rgba(99, 168, 255, .35);
+      pointer-events: none;
+    }
+
+    .spawn {
+      width: 42px;
+      height: 42px;
+      border: 2px solid #b8d8ff;
+      border-radius: 50%;
+      background: var(--blue-deep);
+      color: #f3f8ff;
+      font-weight: 700;
+    }
+
+    .spawn .pin {
+      position: absolute;
+      top: -7px;
+      width: 9px;
+      height: 9px;
+      border: 2px solid #b8d8ff;
+      border-radius: 50%;
+      background: var(--blue-deep);
+    }
+
+    .building {
+      min-width: 72px;
+      min-height: 52px;
+      border: 2px solid #ffd295;
+      border-radius: 5px;
+      background: repeating-linear-gradient(135deg, #68461f 0, #68461f 8px, #785227 8px, #785227 16px);
+      color: #fff5e6;
+      font-weight: 700;
+    }
+
+    .entity-label {
+      position: absolute;
+      top: calc(100% + 8px);
+      padding: 2px 6px;
+      border-radius: 4px;
+      white-space: nowrap;
+      background: rgba(11, 17, 28, .82);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 500;
+      pointer-events: none;
+    }
+
+    .legend {
+      position: absolute;
+      left: 16px;
+      bottom: 14px;
+      display: flex;
+      gap: 13px;
+      align-items: center;
+      padding: 7px 9px;
+      border: 1px solid rgba(137, 161, 195, .35);
+      border-radius: 6px;
+      background: rgba(13, 20, 32, .76);
+      color: var(--muted);
+      font-size: 12px;
+      pointer-events: none;
+    }
+
+    .zoom-status {
+      position: absolute;
+      right: 16px;
+      bottom: 14px;
+      padding: 7px 9px;
+      border: 1px solid rgba(137, 161, 195, .35);
+      border-radius: 6px;
+      background: rgba(13, 20, 32, .76);
+      color: var(--muted);
+      font-size: 12px;
+      pointer-events: none;
+    }
+
+    .legend i { display: inline-block; width: 9px; height: 9px; margin-right: 5px; }
+    .legend .dot { border-radius: 50%; background: var(--blue); }
+    .legend .block { background: var(--orange); }
+
+    .panel {
+      border-left: 1px solid var(--line);
+      background: #141e2e;
+      padding: 18px;
+    }
+
+    .panel h2 { margin: 0 0 4px; font-size: 15px; }
+    .panel .hint { margin: 0 0 18px; color: var(--muted); font-size: 12px; }
+    .empty { padding-top: 12px; color: var(--muted); }
+
+    .type-pill {
+      display: inline-block;
+      margin: 2px 0 18px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .field { display: grid; gap: 6px; margin-bottom: 15px; }
+    .field label { color: var(--muted); font-size: 12px; }
+    .field input {
+      width: 100%;
+      padding: 8px 9px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      outline: none;
+      background: var(--surface-2);
+      color: var(--text);
+    }
+    .field input:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(99, 168, 255, .18); }
+
+    .coordinates { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .coordinates .field { margin-bottom: 15px; }
+    .validation { min-height: 18px; color: var(--danger); font-size: 12px; }
+
+    @media (max-width: 760px) {
+      .topbar { align-items: flex-start; flex-direction: column; }
+      .workspace { grid-template-columns: 1fr; }
+      .map { height: 62vh; min-height: 440px; }
+      .panel { border-left: 0; border-top: 1px solid var(--line); }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="title-wrap">
+        <h1>队伍出生点编辑 Demo</h1>
+        <p>当前仅维护出生点与建筑物；队伍分配逻辑尚未接入。</p>
+      </div>
+      <div class="toolbar" aria-label="编辑工具">
+        <button class="btn primary" id="add-spawn" type="button">＋ 新增出生点</button>
+        <button class="btn orange" id="add-building" type="button">＋ 新增建筑物</button>
+        <button class="btn danger" id="delete-selected" type="button">删除选中</button>
+      </div>
+    </header>
+
+    <section class="workspace">
+      <div class="map-wrap">
+        <div class="map" id="map" aria-label="可编辑地图。拖动出生点或建筑物可改变位置。按住 Ctrl 并滚动鼠标滚轮可缩放地图。">
+          <div class="scene" id="scene"></div>
+          <div class="legend" aria-hidden="true">
+            <span><i class="dot"></i>出生组</span>
+            <span><i class="block"></i>建筑物</span>
+          </div>
+          <div class="zoom-status">Ctrl + 滚轮 · <span id="zoom-level">100%</span></div>
+        </div>
+      </div>
+      <aside class="panel" aria-live="polite">
+        <h2>属性</h2>
+        <p class="hint">选中地图对象后，可实时修改编号和位置。</p>
+        <div id="properties"></div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const entities = [
+      { uid: 'spawn-1', type: 'spawn', groupId: 1, x: 18, y: 28 },
+      { uid: 'spawn-2', type: 'spawn', groupId: 2, x: 79, y: 25 },
+      { uid: 'spawn-3', type: 'spawn', groupId: 3, x: 46, y: 68 },
+      { uid: 'building-1', type: 'building', buildingId: 1, x: 35, y: 35, w: 13, h: 10 },
+      { uid: 'building-2', type: 'building', buildingId: 2, x: 66, y: 58, w: 15, h: 11 },
+      { uid: 'building-3', type: 'building', buildingId: 3, x: 21, y: 73, w: 12, h: 9 }
+    ];
+
+    const map = document.getElementById('map');
+    const scene = document.getElementById('scene');
+    const zoomLevel = document.getElementById('zoom-level');
+    const properties = document.getElementById('properties');
+    const deleteButton = document.getElementById('delete-selected');
+    let selectedUid = null;
+    let dragging = null;
+    let panning = null;
+    const view = { zoom: 1, panX: 0, panY: 0 };
+
+    function selectedEntity() {
+      return entities.find((entity) => entity.uid === selectedUid) || null;
+    }
+
+    function nextId(key) {
+      return Math.max(0, ...entities.filter((entity) => entity.type === key.type)
+        .map((entity) => Number(entity[key.field]) || 0)) + 1;
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(max, Math.max(min, value));
+    }
+
+    function idIsDuplicated(entity) {
+      const field = entity.type === 'spawn' ? 'groupId' : 'buildingId';
+      return entities.some((other) => other.uid !== entity.uid && other.type === entity.type && String(other[field]) === String(entity[field]));
+    }
+
+    function entityLabel(entity) {
+      return entity.type === 'spawn' ? `GroupId ${entity.groupId}` : `建筑物 ${entity.buildingId}`;
+    }
+
+    function renderMap() {
+      scene.querySelectorAll('[data-entity]').forEach((node) => node.remove());
+      entities.forEach((entity) => {
+        const node = document.createElement('button');
+        node.type = 'button';
+        node.className = `entity ${entity.type}${entity.uid === selectedUid ? ' selected' : ''}`;
+        node.dataset.entity = entity.uid;
+        node.setAttribute('aria-label', entityLabel(entity));
+        node.style.left = `${entity.x}%`;
+        node.style.top = `${entity.y}%`;
+        if (entity.type === 'building') {
+          node.style.width = `${entity.w}%`;
+          node.style.height = `${entity.h}%`;
+          node.innerHTML = `<span>B${entity.buildingId}</span><span class="entity-label">建筑物 ${entity.buildingId}</span>`;
+        } else {
+          node.innerHTML = `<span class="pin"></span><span>${entity.groupId}</span><span class="entity-label">GroupId ${entity.groupId}</span>`;
+        }
+        node.addEventListener('pointerdown', beginDrag);
+        node.addEventListener('click', (event) => event.stopPropagation());
+        scene.appendChild(node);
+      });
+    }
+
+    function applyView() {
+      scene.style.transform = `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`;
+      const gridSize = 32 * view.zoom;
+      map.style.backgroundSize = `${gridSize}px ${gridSize}px, ${gridSize}px ${gridSize}px, auto, auto`;
+      map.style.backgroundPosition = `${view.panX}px ${view.panY}px, ${view.panX}px ${view.panY}px, center, center`;
+      zoomLevel.textContent = `${Math.round(view.zoom * 100)}%`;
+    }
+
+    function renderProperties() {
+      const entity = selectedEntity();
+      deleteButton.disabled = !entity;
+      if (!entity) {
+        properties.innerHTML = '<p class="empty">请选择一个出生点或建筑物。</p>';
+        return;
+      }
+
+      const isSpawn = entity.type === 'spawn';
+      const idField = isSpawn ? 'groupId' : 'buildingId';
+      const idLabel = isSpawn ? '出生组 GroupId' : '建筑物编号';
+      const duplicateWarning = idIsDuplicated(entity) ? `${idLabel} 不能与同类对象重复。` : '';
+      const buildingFields = isSpawn ? '' : `
+        <div class="coordinates">
+          <div class="field"><label for="width">宽度（%）</label><input id="width" data-field="w" type="number" min="6" max="35" step="1" value="${entity.w}"></div>
+          <div class="field"><label for="height">高度（%）</label><input id="height" data-field="h" type="number" min="5" max="30" step="1" value="${entity.h}"></div>
+        </div>`;
+
+      properties.innerHTML = `
+        <span class="type-pill">${isSpawn ? '出生点 Actor' : '建筑物 Actor'}</span>
+        <div class="field">
+          <label for="entity-id">${idLabel}</label>
+          <input id="entity-id" data-field="${idField}" type="number" min="1" step="1" value="${entity[idField]}">
+        </div>
+        <div class="coordinates">
+          <div class="field"><label for="pos-x">X（%）</label><input id="pos-x" data-field="x" type="number" min="0" max="100" step="1" value="${Math.round(entity.x)}"></div>
+          <div class="field"><label for="pos-y">Y（%）</label><input id="pos-y" data-field="y" type="number" min="0" max="100" step="1" value="${Math.round(entity.y)}"></div>
+        </div>
+        ${buildingFields}
+        <div class="validation" id="validation">${duplicateWarning}</div>`;
+
+      properties.querySelectorAll('input').forEach((input) => {
+        input.addEventListener('input', () => updateField(input.dataset.field, input.value));
+        input.addEventListener('change', render);
+      });
+    }
+
+    function updateField(field, rawValue) {
+      const entity = selectedEntity();
+      const value = Number(rawValue);
+      if (!entity || !Number.isFinite(value)) return;
+      if (field === 'x' || field === 'y') entity[field] = clamp(value, 0, 100);
+      else if (field === 'w') entity.w = clamp(value, 6, 35);
+      else if (field === 'h') entity.h = clamp(value, 5, 30);
+      else entity[field] = Math.max(1, Math.round(value));
+      renderMap();
+      const validation = document.getElementById('validation');
+      if (validation) {
+        const idLabel = entity.type === 'spawn' ? '出生组 GroupId' : '建筑物编号';
+        validation.textContent = idIsDuplicated(entity) ? `${idLabel} 不能与同类对象重复。` : '';
+      }
+    }
+
+    function render() {
+      renderMap();
+      renderProperties();
+    }
+
+    function beginDrag(event) {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const uid = event.currentTarget.dataset.entity;
+      const entity = entities.find((item) => item.uid === uid);
+      if (!entity) return;
+      selectedUid = uid;
+      const rect = map.getBoundingClientRect();
+      dragging = {
+        uid,
+        offsetX: event.clientX - rect.left - view.panX - (entity.x / 100) * rect.width * view.zoom,
+        offsetY: event.clientY - rect.top - view.panY - (entity.y / 100) * rect.height * view.zoom
+      };
+      render();
+    }
+
+    function moveEntity(event) {
+      if (panning) {
+        view.panX = panning.panX + event.clientX - panning.startX;
+        view.panY = panning.panY + event.clientY - panning.startY;
+        applyView();
+        return;
+      }
+      if (!dragging) return;
+      const entity = entities.find((item) => item.uid === dragging.uid);
+      if (!entity) return;
+      const rect = map.getBoundingClientRect();
+      entity.x = clamp(((event.clientX - rect.left - view.panX - dragging.offsetX) / (rect.width * view.zoom)) * 100, 2, 98);
+      entity.y = clamp(((event.clientY - rect.top - view.panY - dragging.offsetY) / (rect.height * view.zoom)) * 100, 3, 96);
+      renderMap();
+      const xInput = document.querySelector('[data-field="x"]');
+      const yInput = document.querySelector('[data-field="y"]');
+      if (xInput) xInput.value = Math.round(entity.x);
+      if (yInput) yInput.value = Math.round(entity.y);
+    }
+
+    function endDrag() {
+      dragging = null;
+      if (panning) {
+        panning = null;
+        map.classList.remove('is-panning');
+      }
+    }
+
+    function beginPan(event) {
+      if (event.button !== 2) return;
+      event.preventDefault();
+      dragging = null;
+      panning = { startX: event.clientX, startY: event.clientY, panX: view.panX, panY: view.panY };
+      map.classList.add('is-panning');
+    }
+
+    function zoomMap(event) {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      const rect = map.getBoundingClientRect();
+      const cursorX = event.clientX - rect.left;
+      const cursorY = event.clientY - rect.top;
+      const worldX = (cursorX - view.panX) / view.zoom;
+      const worldY = (cursorY - view.panY) / view.zoom;
+      const factor = event.deltaY < 0 ? 1.12 : 0.89;
+      const nextZoom = clamp(view.zoom * factor, 0.55, 2.5);
+      view.panX = cursorX - worldX * nextZoom;
+      view.panY = cursorY - worldY * nextZoom;
+      view.zoom = nextZoom;
+      applyView();
+    }
+
+    document.getElementById('add-spawn').addEventListener('click', () => {
+      const groupId = nextId({ type: 'spawn', field: 'groupId' });
+      const entity = { uid: `spawn-${Date.now()}`, type: 'spawn', groupId, x: 50, y: 48 };
+      entities.push(entity);
+      selectedUid = entity.uid;
+      render();
+    });
+
+    document.getElementById('add-building').addEventListener('click', () => {
+      const buildingId = nextId({ type: 'building', field: 'buildingId' });
+      const entity = { uid: `building-${Date.now()}`, type: 'building', buildingId, x: 52, y: 52, w: 13, h: 10 };
+      entities.push(entity);
+      selectedUid = entity.uid;
+      render();
+    });
+
+    deleteButton.addEventListener('click', () => {
+      const index = entities.findIndex((entity) => entity.uid === selectedUid);
+      if (index < 0) return;
+      entities.splice(index, 1);
+      selectedUid = null;
+      render();
+    });
+
+    map.addEventListener('pointerdown', (event) => {
+      if (event.button === 2) {
+        beginPan(event);
+        return;
+      }
+      if (!event.target.closest('[data-entity]')) {
+        selectedUid = null;
+        render();
+      }
+    });
+
+    map.addEventListener('wheel', zoomMap, { passive: false });
+    map.addEventListener('contextmenu', (event) => event.preventDefault());
+
+    window.addEventListener('pointermove', moveEntity);
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', endDrag);
+    render();
+    applyView();
+  </script>
+</body>
+</html>
