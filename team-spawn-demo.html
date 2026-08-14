@@ -291,6 +291,8 @@
   </main>
 
   <script>
+    // 当前的地图数据只保存在浏览器内存中。后续接入存档或服务端时，
+    // 可将 entities 序列化为 JSON，并在页面初始化时恢复。
     const entities = [
       { uid: 'spawn-1', type: 'spawn', groupId: 1, x: 18, y: 28 },
       { uid: 'spawn-2', type: 'spawn', groupId: 2, x: 79, y: 25 },
@@ -308,6 +310,7 @@
     let selectedUid = null;
     let dragging = null;
     let panning = null;
+    // zoom 为地图比例；panX / panY 为地图左上角在视口中的像素偏移。
     const view = { zoom: 1, panX: 0, panY: 0 };
 
     function selectedEntity() {
@@ -333,6 +336,7 @@
     }
 
     function renderMap() {
+      // 先清空并重建对象，保证选中态、编号和坐标始终来自 entities 单一数据源。
       scene.querySelectorAll('[data-entity]').forEach((node) => node.remove());
       entities.forEach((entity) => {
         const node = document.createElement('button');
@@ -356,6 +360,7 @@
     }
 
     function applyView() {
+      // 实体由 scene 整体变换；网格在 map 背景层单独同步，避免缩放时出现错位。
       scene.style.transform = `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`;
       const gridSize = 32 * view.zoom;
       map.style.backgroundSize = `${gridSize}px ${gridSize}px, ${gridSize}px ${gridSize}px, auto, auto`;
@@ -430,6 +435,7 @@
       if (!entity) return;
       selectedUid = uid;
       const rect = map.getBoundingClientRect();
+      // offset 保留鼠标与对象中心的屏幕距离，拖拽时可避免对象突然跳到鼠标中心。
       dragging = {
         uid,
         offsetX: event.clientX - rect.left - view.panX - (entity.x / 100) * rect.width * view.zoom,
@@ -440,6 +446,7 @@
 
     function moveEntity(event) {
       if (panning) {
+        // 右键平移直接更新视图偏移；实体坐标保持不变。
         view.panX = panning.panX + event.clientX - panning.startX;
         view.panY = panning.panY + event.clientY - panning.startY;
         applyView();
@@ -449,6 +456,7 @@
       const entity = entities.find((item) => item.uid === dragging.uid);
       if (!entity) return;
       const rect = map.getBoundingClientRect();
+      // 将屏幕坐标反算为未缩放地图内的百分比坐标。
       entity.x = clamp(((event.clientX - rect.left - view.panX - dragging.offsetX) / (rect.width * view.zoom)) * 100, 2, 98);
       entity.y = clamp(((event.clientY - rect.top - view.panY - dragging.offsetY) / (rect.height * view.zoom)) * 100, 3, 96);
       renderMap();
@@ -480,6 +488,7 @@
       const rect = map.getBoundingClientRect();
       const cursorX = event.clientX - rect.left;
       const cursorY = event.clientY - rect.top;
+      // 以鼠标所在的地图坐标为缩放中心，因此缩放时该位置保持在鼠标下方。
       const worldX = (cursorX - view.panX) / view.zoom;
       const worldY = (cursorY - view.panY) / view.zoom;
       const factor = event.deltaY < 0 ? 1.12 : 0.89;
