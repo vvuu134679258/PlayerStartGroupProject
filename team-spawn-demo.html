@@ -70,7 +70,7 @@
     .workspace {
       min-height: 0;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 285px;
+      grid-template-columns: minmax(0, 1fr) 360px;
     }
 
     .map-wrap {
@@ -213,6 +213,8 @@
     .legend .block { background: var(--orange); }
 
     .panel {
+      min-height: 0;
+      overflow-y: auto;
       border-left: 1px solid var(--line);
       background: #141e2e;
       padding: 18px;
@@ -249,6 +251,53 @@
     .coordinates .field { margin-bottom: 15px; }
     .validation { min-height: 18px; color: var(--danger); font-size: 12px; }
 
+    .panel-section {
+      margin-top: 22px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+    }
+
+    .panel-section h2 { margin-bottom: 4px; }
+    .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .config-grid .field { margin-bottom: 10px; }
+    .config-grid .field input, .rule-card input, .rule-card select { width: 100%; }
+    .section-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+    .section-actions .btn:last-child { grid-column: 1 / -1; }
+    .rule-card {
+      margin: 10px 0;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(32, 45, 68, .56);
+    }
+    .rule-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
+    .rule-card-head strong { font-size: 12px; }
+    .rule-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+    .rule-row:last-child { margin-bottom: 0; }
+    .rule-row .field { margin: 0; }
+    .rule-row label { color: var(--muted); font-size: 11px; }
+    .rule-card .btn { padding: 5px 8px; font-size: 12px; }
+    .rule-description { margin: 7px 0 0; color: var(--muted); font-size: 11px; }
+    .layout-results { display: grid; gap: 8px; margin-top: 12px; }
+    .layout-result {
+      padding: 10px;
+      border: 1px solid rgba(99, 168, 255, .45);
+      border-radius: 8px;
+      background: rgba(38, 77, 133, .22);
+    }
+    .layout-result strong { display: block; margin-bottom: 5px; font-size: 12px; }
+    .layout-result p, .layout-points, .result-message { margin: 0; color: var(--muted); font-size: 12px; }
+    .tag-chip {
+      display: inline-block;
+      margin: 3px 4px 0 0;
+      padding: 1px 5px;
+      border: 1px solid rgba(99, 168, 255, .5);
+      border-radius: 999px;
+      color: #cfe5ff;
+      font-size: 11px;
+    }
+    .empty-rule { margin: 10px 0; color: var(--muted); font-size: 12px; }
+
     @media (max-width: 760px) {
       .topbar { align-items: flex-start; flex-direction: column; }
       .workspace { grid-template-columns: 1fr; }
@@ -283,9 +332,16 @@
         </div>
       </div>
       <aside class="panel" aria-live="polite">
-        <h2>属性</h2>
-        <p class="hint">选中地图对象后，可实时修改编号和位置。</p>
-        <div id="properties"></div>
+        <section>
+          <h2>属性</h2>
+          <p class="hint">选中地图对象后，可实时修改编号、位置和出生点 Tag。</p>
+          <div id="properties"></div>
+        </section>
+        <section class="panel-section" aria-labelledby="layout-config-title">
+          <h2 id="layout-config-title">全局布局约束</h2>
+          <p class="hint">先配置“哪些点能同时激活”，再生成合法的 N 点出生布局。</p>
+          <div id="layout-config"></div>
+        </section>
       </aside>
     </section>
   </main>
@@ -294,19 +350,27 @@
     // 当前的地图数据只保存在浏览器内存中。后续接入存档或服务端时，
     // 可将 entities 序列化为 JSON，并在页面初始化时恢复。
     const entities = [
-      { uid: 'spawn-1', type: 'spawn', groupId: 1, x: 18, y: 28 },
-      { uid: 'spawn-2', type: 'spawn', groupId: 2, x: 79, y: 25 },
-      { uid: 'spawn-3', type: 'spawn', groupId: 3, x: 46, y: 68 },
-      { uid: 'building-1', type: 'building', buildingId: 1, x: 35, y: 35, w: 13, h: 10 },
-      { uid: 'building-2', type: 'building', buildingId: 2, x: 66, y: 58, w: 15, h: 11 },
-      { uid: 'building-3', type: 'building', buildingId: 3, x: 21, y: 73, w: 12, h: 9 }
+      { uid: 'spawn-1', type: 'spawn', groupId: 1, x: 18, y: 28, tags: ['Aggressive_Core', 'CoreAnchor'] },
+      { uid: 'spawn-2', type: 'spawn', groupId: 2, x: 79, y: 25, tags: ['EdgeLoot'] },
+      { uid: 'spawn-3', type: 'spawn', groupId: 3, x: 46, y: 68, tags: ['MiddleTactical'] },
+      // 建筑物宽高使用像素，避免随地图容器宽高变化而被拉伸。
+      { uid: 'building-1', type: 'building', buildingId: 1, x: 35, y: 35, w: 180, h: 78 },
+      { uid: 'building-2', type: 'building', buildingId: 2, x: 66, y: 58, w: 210, h: 86 },
+      { uid: 'building-3', type: 'building', buildingId: 3, x: 21, y: 73, w: 165, h: 72 }
     ];
 
     const map = document.getElementById('map');
     const scene = document.getElementById('scene');
     const zoomLevel = document.getElementById('zoom-level');
     const properties = document.getElementById('properties');
+    const layoutConfigElement = document.getElementById('layout-config');
     const deleteButton = document.getElementById('delete-selected');
+    const layoutConfig = {
+      targetCount: 2,
+      maxLayouts: 12,
+      rules: []
+    };
+    let generatedLayouts = null;
     let selectedUid = null;
     let dragging = null;
     let panning = null;
@@ -315,6 +379,35 @@
 
     function selectedEntity() {
       return entities.find((entity) => entity.uid === selectedUid) || null;
+    }
+
+    function spawnPoints() {
+      return entities.filter((entity) => entity.type === 'spawn');
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>'"]/g, (character) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+      })[character]);
+    }
+
+    function normalizeTags(rawValue) {
+      const values = Array.isArray(rawValue) ? rawValue : String(rawValue).split(/[,，]/);
+      const seen = new Set();
+      return values.reduce((tags, value) => {
+        const tag = String(value).trim();
+        const key = tag.toLocaleLowerCase();
+        if (tag && !seen.has(key)) {
+          seen.add(key);
+          tags.push(tag);
+        }
+        return tags;
+      }, []);
+    }
+
+    function tagsMatch(point, tags) {
+      const expected = new Set(normalizeTags(tags).map((tag) => tag.toLocaleLowerCase()));
+      return point.tags.some((tag) => expected.has(tag.toLocaleLowerCase()));
     }
 
     function nextId(key) {
@@ -332,7 +425,9 @@
     }
 
     function entityLabel(entity) {
-      return entity.type === 'spawn' ? `GroupId ${entity.groupId}` : `建筑物 ${entity.buildingId}`;
+      if (entity.type === 'building') return `建筑物 ${entity.buildingId}`;
+      const tagSuffix = entity.tags.length ? `，Tag：${entity.tags.join('、')}` : '';
+      return `GroupId ${entity.groupId}${tagSuffix}`;
     }
 
     function renderMap() {
@@ -347,8 +442,8 @@
         node.style.left = `${entity.x}%`;
         node.style.top = `${entity.y}%`;
         if (entity.type === 'building') {
-          node.style.width = `${entity.w}%`;
-          node.style.height = `${entity.h}%`;
+          node.style.width = `${entity.w}px`;
+          node.style.height = `${entity.h}px`;
           node.innerHTML = `<span>B${entity.buildingId}</span><span class="entity-label">建筑物 ${entity.buildingId}</span>`;
         } else {
           node.innerHTML = `<span class="pin"></span><span>${entity.groupId}</span><span class="entity-label">GroupId ${entity.groupId}</span>`;
@@ -380,10 +475,15 @@
       const idField = isSpawn ? 'groupId' : 'buildingId';
       const idLabel = isSpawn ? '出生组 GroupId' : '建筑物编号';
       const duplicateWarning = idIsDuplicated(entity) ? `${idLabel} 不能与同类对象重复。` : '';
+      const spawnFields = isSpawn ? `
+        <div class="field">
+          <label for="spawn-tags">点位 Tags（逗号分隔）</label>
+          <input id="spawn-tags" type="text" value="${escapeHtml(entity.tags.join(', '))}" placeholder="例如：Aggressive_Core, EdgeLoot">
+        </div>` : '';
       const buildingFields = isSpawn ? '' : `
         <div class="coordinates">
-          <div class="field"><label for="width">宽度（%）</label><input id="width" data-field="w" type="number" min="6" max="35" step="1" value="${entity.w}"></div>
-          <div class="field"><label for="height">高度（%）</label><input id="height" data-field="h" type="number" min="5" max="30" step="1" value="${entity.h}"></div>
+          <div class="field"><label for="width">宽度（px）</label><input id="width" data-field="w" type="number" min="48" max="640" step="1" value="${entity.w}"></div>
+          <div class="field"><label for="height">高度（px）</label><input id="height" data-field="h" type="number" min="36" max="420" step="1" value="${entity.h}"></div>
         </div>`;
 
       properties.innerHTML = `
@@ -396,13 +496,19 @@
           <div class="field"><label for="pos-x">X（%）</label><input id="pos-x" data-field="x" type="number" min="0" max="100" step="1" value="${Math.round(entity.x)}"></div>
           <div class="field"><label for="pos-y">Y（%）</label><input id="pos-y" data-field="y" type="number" min="0" max="100" step="1" value="${Math.round(entity.y)}"></div>
         </div>
+        ${spawnFields}
         ${buildingFields}
         <div class="validation" id="validation">${duplicateWarning}</div>`;
 
-      properties.querySelectorAll('input').forEach((input) => {
+      properties.querySelectorAll('[data-field]').forEach((input) => {
         input.addEventListener('input', () => updateField(input.dataset.field, input.value));
         input.addEventListener('change', render);
       });
+      const tagsInput = document.getElementById('spawn-tags');
+      if (tagsInput) {
+        tagsInput.addEventListener('input', () => updateSpawnTags(tagsInput.value));
+        tagsInput.addEventListener('change', render);
+      }
     }
 
     function updateField(field, rawValue) {
@@ -410,8 +516,8 @@
       const value = Number(rawValue);
       if (!entity || !Number.isFinite(value)) return;
       if (field === 'x' || field === 'y') entity[field] = clamp(value, 0, 100);
-      else if (field === 'w') entity.w = clamp(value, 6, 35);
-      else if (field === 'h') entity.h = clamp(value, 5, 30);
+      else if (field === 'w') entity.w = clamp(value, 48, 640);
+      else if (field === 'h') entity.h = clamp(value, 36, 420);
       else entity[field] = Math.max(1, Math.round(value));
       renderMap();
       const validation = document.getElementById('validation');
@@ -421,9 +527,18 @@
       }
     }
 
+    function updateSpawnTags(rawValue) {
+      const entity = selectedEntity();
+      if (!entity || entity.type !== 'spawn') return;
+      entity.tags = normalizeTags(rawValue);
+      generatedLayouts = null;
+      renderMap();
+    }
+
     function render() {
       renderMap();
       renderProperties();
+      renderGlobalConfig();
     }
 
     function beginDrag(event) {
@@ -499,9 +614,326 @@
       applyView();
     }
 
+    function makeRuleId() {
+      return `rule-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    }
+
+    function pointByUid(uid) {
+      return spawnPoints().find((point) => point.uid === uid) || null;
+    }
+
+    function pointName(uid) {
+      const point = pointByUid(uid);
+      return point ? `GroupId ${point.groupId}` : '已删除点位';
+    }
+
+    function pointOptions(selectedUid) {
+      const points = spawnPoints();
+      if (!points.length) return '<option value="">暂无出生点</option>';
+      return points.map((point) => `<option value="${escapeHtml(point.uid)}"${point.uid === selectedUid ? ' selected' : ''}>GroupId ${point.groupId}</option>`).join('');
+    }
+
+    function groupIdsForPointUids(pointIds) {
+      return pointIds.map((uid) => pointByUid(uid)).filter(Boolean).map((point) => point.groupId).join(', ');
+    }
+
+    function updateRulePointIds(rule, rawValue) {
+      const requestedIds = String(rawValue).split(/[,，]/)
+        .map((value) => Number(value.trim())).filter((value) => Number.isInteger(value) && value > 0);
+      const uniqueIds = [...new Set(requestedIds)];
+      rule.pointIds = spawnPoints().filter((point) => uniqueIds.includes(point.groupId)).map((point) => point.uid);
+      rule.invalidGroupIds = uniqueIds.filter((groupId) => !spawnPoints().some((point) => point.groupId === groupId));
+    }
+
+    function createCountRule() {
+      return {
+        id: makeRuleId(),
+        type: 'count',
+        scope: 'points',
+        pointIds: spawnPoints().slice(0, 2).map((point) => point.uid),
+        invalidGroupIds: [],
+        tags: [],
+        comparison: 'exactly',
+        value: 1
+      };
+    }
+
+    function createActivationRule() {
+      return {
+        id: makeRuleId(),
+        type: 'activation',
+        mode: 'required',
+        pointId: spawnPoints()[0]?.uid || ''
+      };
+    }
+
+    function createRelationRule() {
+      const points = spawnPoints();
+      return {
+        id: makeRuleId(),
+        type: 'relation',
+        relation: 'exclusive',
+        sourceId: points[0]?.uid || '',
+        targetId: points[1]?.uid || ''
+      };
+    }
+
+    function comparisonLabel(comparison) {
+      return { exactly: '恰好', atLeast: '至少', atMost: '至多' }[comparison] || '恰好';
+    }
+
+    function relationLabel(relation) {
+      return {
+        exclusive: '互斥',
+        bound: '双向绑定',
+        requires: '出现时要求目标出现',
+        disables: '出现时关闭目标'
+      }[relation] || '互斥';
+    }
+
+    function ruleDescription(rule) {
+      if (rule.type === 'activation') {
+        return `${pointName(rule.pointId)} ${rule.mode === 'required' ? '必须激活' : '禁止激活'}`;
+      }
+      if (rule.type === 'count') {
+        const subject = rule.scope === 'points'
+          ? `点位 GroupId [${groupIdsForPointUids(rule.pointIds) || '未选择'}]`
+          : `Tag [${rule.tags.join(', ') || '未填写'}]`;
+        return `${subject} ${comparisonLabel(rule.comparison)}激活 ${rule.value} 个`;
+      }
+      return `${pointName(rule.sourceId)} 与 ${pointName(rule.targetId)}：${relationLabel(rule.relation)}`;
+    }
+
+    function renderRuleCard(rule) {
+      if (rule.type === 'activation') {
+        return `
+          <article class="rule-card">
+            <div class="rule-card-head"><strong>点位状态约束</strong><button class="btn danger" type="button" data-action="remove-rule" data-rule-id="${rule.id}">删除</button></div>
+            <div class="rule-row">
+              <div class="field"><label>规则</label><select data-rule-id="${rule.id}" data-rule-field="mode"><option value="required"${rule.mode === 'required' ? ' selected' : ''}>必须激活</option><option value="blocked"${rule.mode === 'blocked' ? ' selected' : ''}>禁止激活</option></select></div>
+              <div class="field"><label>出生点</label><select data-rule-id="${rule.id}" data-rule-field="pointId">${pointOptions(rule.pointId)}</select></div>
+            </div>
+            <p class="rule-description">${escapeHtml(ruleDescription(rule))}</p>
+          </article>`;
+      }
+
+      if (rule.type === 'count') {
+        const subjectField = rule.scope === 'points'
+          ? `<div class="field"><label>GroupId（逗号分隔）</label><input data-rule-id="${rule.id}" data-rule-field="pointIds" type="text" value="${escapeHtml(groupIdsForPointUids(rule.pointIds))}" placeholder="例如：1, 3, 5"></div>`
+          : `<div class="field"><label>Tags（逗号分隔）</label><input data-rule-id="${rule.id}" data-rule-field="tags" type="text" value="${escapeHtml(rule.tags.join(', '))}" placeholder="例如：EdgeLoot, CoreAnchor"></div>`;
+        const missingPoints = rule.invalidGroupIds?.length ? `<p class="rule-description">未找到 GroupId：${rule.invalidGroupIds.join(', ')}</p>` : '';
+        return `
+          <article class="rule-card">
+            <div class="rule-card-head"><strong>数量约束</strong><button class="btn danger" type="button" data-action="remove-rule" data-rule-id="${rule.id}">删除</button></div>
+            <div class="rule-row">
+              <div class="field"><label>对象</label><select data-rule-id="${rule.id}" data-rule-field="scope"><option value="points"${rule.scope === 'points' ? ' selected' : ''}>指定点位</option><option value="tags"${rule.scope === 'tags' ? ' selected' : ''}>带指定 Tag 的点位</option></select></div>
+              <div class="field"><label>条件</label><select data-rule-id="${rule.id}" data-rule-field="comparison"><option value="exactly"${rule.comparison === 'exactly' ? ' selected' : ''}>恰好选</option><option value="atLeast"${rule.comparison === 'atLeast' ? ' selected' : ''}>至少选</option><option value="atMost"${rule.comparison === 'atMost' ? ' selected' : ''}>至多选</option></select></div>
+            </div>
+            <div class="rule-row">
+              ${subjectField}
+              <div class="field"><label>数量</label><input data-rule-id="${rule.id}" data-rule-field="value" type="number" min="0" max="32" step="1" value="${rule.value}"></div>
+            </div>
+            <p class="rule-description">${escapeHtml(ruleDescription(rule))}</p>${missingPoints}
+          </article>`;
+      }
+
+      return `
+        <article class="rule-card">
+          <div class="rule-card-head"><strong>点位关系约束</strong><button class="btn danger" type="button" data-action="remove-rule" data-rule-id="${rule.id}">删除</button></div>
+          <div class="rule-row">
+            <div class="field"><label>起点</label><select data-rule-id="${rule.id}" data-rule-field="sourceId">${pointOptions(rule.sourceId)}</select></div>
+            <div class="field"><label>关系</label><select data-rule-id="${rule.id}" data-rule-field="relation"><option value="exclusive"${rule.relation === 'exclusive' ? ' selected' : ''}>互斥</option><option value="bound"${rule.relation === 'bound' ? ' selected' : ''}>双向绑定</option><option value="requires"${rule.relation === 'requires' ? ' selected' : ''}>出现则目标出现</option><option value="disables"${rule.relation === 'disables' ? ' selected' : ''}>出现则关闭目标</option></select></div>
+          </div>
+          <div class="field"><label>目标</label><select data-rule-id="${rule.id}" data-rule-field="targetId">${pointOptions(rule.targetId)}</select></div>
+          <p class="rule-description">${escapeHtml(ruleDescription(rule))}</p>
+        </article>`;
+    }
+
+    function configErrors() {
+      const points = spawnPoints();
+      const errors = [];
+      if (!points.length) errors.push('至少需要一个出生点才能生成布局。');
+      if (layoutConfig.targetCount < 1) errors.push('每组激活点数必须至少为 1。');
+      if (layoutConfig.targetCount > points.length) errors.push(`当前只有 ${points.length} 个出生点，无法生成 ${layoutConfig.targetCount} 点布局。`);
+      layoutConfig.rules.forEach((rule) => {
+        if (rule.type === 'activation' && !pointByUid(rule.pointId)) errors.push('点位状态约束引用了不存在的出生点。');
+        if (rule.type === 'count') {
+          if (rule.scope === 'points' && (!rule.pointIds.length || rule.invalidGroupIds?.length)) errors.push('数量约束需要引用至少一个存在的 GroupId。');
+          if (rule.scope === 'tags' && !rule.tags.length) errors.push('Tag 数量约束需要至少填写一个 Tag。');
+        }
+        if (rule.type === 'relation') {
+          if (!pointByUid(rule.sourceId) || !pointByUid(rule.targetId)) errors.push('点位关系约束引用了不存在的出生点。');
+          else if (rule.sourceId === rule.targetId) errors.push('点位关系约束的起点和目标不能相同。');
+        }
+      });
+      return errors;
+    }
+
+    function evaluateLayout(points) {
+      const activeIds = new Set(points.map((point) => point.uid));
+      const violations = [];
+      layoutConfig.rules.forEach((rule) => {
+        if (rule.type === 'activation') {
+          const active = activeIds.has(rule.pointId);
+          if ((rule.mode === 'required' && !active) || (rule.mode === 'blocked' && active)) violations.push(ruleDescription(rule));
+          return;
+        }
+        if (rule.type === 'count') {
+          const count = rule.scope === 'points'
+            ? points.filter((point) => rule.pointIds.includes(point.uid)).length
+            : points.filter((point) => tagsMatch(point, rule.tags)).length;
+          const matched = (rule.comparison === 'exactly' && count === rule.value)
+            || (rule.comparison === 'atLeast' && count >= rule.value)
+            || (rule.comparison === 'atMost' && count <= rule.value);
+          if (!matched) violations.push(ruleDescription(rule));
+          return;
+        }
+        const sourceActive = activeIds.has(rule.sourceId);
+        const targetActive = activeIds.has(rule.targetId);
+        const matched = (rule.relation === 'exclusive' && !(sourceActive && targetActive))
+          || (rule.relation === 'bound' && sourceActive === targetActive)
+          || (rule.relation === 'requires' && (!sourceActive || targetActive))
+          || (rule.relation === 'disables' && (!sourceActive || !targetActive));
+        if (!matched) violations.push(ruleDescription(rule));
+      });
+      return violations;
+    }
+
+    function generateLayouts() {
+      const errors = configErrors();
+      if (errors.length) {
+        generatedLayouts = { errors, layouts: [], examined: 0, validCount: 0, reasons: new Map() };
+        return;
+      }
+
+      const points = spawnPoints();
+      const layouts = [];
+      const reasons = new Map();
+      let examined = 0;
+      let validCount = 0;
+      let truncated = false;
+      const maxCandidates = 50000;
+
+      function visit(startIndex, selectedPoints) {
+        if (examined >= maxCandidates) {
+          truncated = true;
+          return;
+        }
+        if (selectedPoints.length === layoutConfig.targetCount) {
+          examined += 1;
+          const violations = evaluateLayout(selectedPoints);
+          if (!violations.length) {
+            validCount += 1;
+            if (layouts.length < layoutConfig.maxLayouts) {
+              layouts.push({
+                points: [...selectedPoints],
+                logs: layoutConfig.rules.length ? layoutConfig.rules.map((rule) => `满足：${ruleDescription(rule)}`) : ['未配置额外约束']
+              });
+            }
+          } else {
+            violations.forEach((violation) => reasons.set(violation, (reasons.get(violation) || 0) + 1));
+          }
+          return;
+        }
+        const remainingNeeded = layoutConfig.targetCount - selectedPoints.length;
+        for (let index = startIndex; index <= points.length - remainingNeeded; index += 1) {
+          selectedPoints.push(points[index]);
+          visit(index + 1, selectedPoints);
+          selectedPoints.pop();
+          if (truncated) return;
+        }
+      }
+
+      visit(0, []);
+      generatedLayouts = { errors: [], layouts, examined, validCount, reasons, truncated };
+    }
+
+    function renderLayoutResults() {
+      if (!generatedLayouts) return '<p class="result-message">配置完成后，点击“生成合法布局”查看候选出生点组。</p>';
+      if (generatedLayouts.errors.length) return `<p class="result-message">无法生成：${generatedLayouts.errors.map(escapeHtml).join('；')}</p>`;
+      if (!generatedLayouts.validCount) {
+        const commonReasons = [...generatedLayouts.reasons.entries()].sort((left, right) => right[1] - left[1]).slice(0, 3)
+          .map(([reason]) => escapeHtml(reason)).join('；');
+        return `<p class="result-message">已检查 ${generatedLayouts.examined} 个候选组合，没有符合条件的布局。${commonReasons ? `常见冲突：${commonReasons}` : ''}</p>`;
+      }
+      const summary = `<p class="result-message">已检查 ${generatedLayouts.examined} 个候选组合，找到 ${generatedLayouts.validCount} 个合法布局；当前显示前 ${generatedLayouts.layouts.length} 个。</p>`;
+      const cards = generatedLayouts.layouts.map((layout, index) => {
+        const pointText = layout.points.map((point) => {
+          const tags = point.tags.length ? point.tags.map((tag) => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join('') : '<span class="tag-chip">未设置 Tag</span>';
+          return `<div>GroupId ${point.groupId}：${tags}</div>`;
+        }).join('');
+        return `<article class="layout-result"><strong>方案 ${index + 1} · GroupId ${layout.points.map((point) => point.groupId).join('、')}</strong><div class="layout-points">${pointText}</div><p>规则日志：${layout.logs.map(escapeHtml).join('；')}</p></article>`;
+      }).join('');
+      const truncated = generatedLayouts.truncated ? '<p class="result-message">候选组合超过 50,000 个，已停止继续枚举。</p>' : '';
+      return `${summary}<div class="layout-results">${cards}</div>${truncated}`;
+    }
+
+    function renderGlobalConfig() {
+      layoutConfigElement.innerHTML = `
+        <div class="config-grid">
+          <div class="field"><label for="target-count">每组激活点数</label><input id="target-count" data-layout-field="targetCount" type="number" min="1" max="32" step="1" value="${layoutConfig.targetCount}"></div>
+          <div class="field"><label for="max-layouts">最大生成方案数</label><input id="max-layouts" data-layout-field="maxLayouts" type="number" min="1" max="50" step="1" value="${layoutConfig.maxLayouts}"></div>
+        </div>
+        <button class="btn primary" type="button" data-action="generate-layouts">生成合法布局</button>
+        <div class="section-actions">
+          <button class="btn" type="button" data-action="add-activation-rule">＋ 点位状态</button>
+          <button class="btn" type="button" data-action="add-count-rule">＋ 数量约束</button>
+          <button class="btn" type="button" data-action="add-relation-rule">＋ 点位关系</button>
+        </div>
+        <div>${layoutConfig.rules.length ? layoutConfig.rules.map(renderRuleCard).join('') : '<p class="empty-rule">尚无额外约束：将从全部出生点中生成指定数量的组合。</p>'}</div>
+        ${renderLayoutResults()}`;
+    }
+
+    function updateRule(rule, field, rawValue) {
+      if (field === 'pointIds') updateRulePointIds(rule, rawValue);
+      else if (field === 'tags') rule.tags = normalizeTags(rawValue);
+      else if (field === 'value') rule.value = clamp(Math.round(Number(rawValue) || 0), 0, 32);
+      else rule[field] = rawValue;
+      generatedLayouts = null;
+    }
+
+    function pruneRulesForDeletedPoint(uid) {
+      layoutConfig.rules = layoutConfig.rules.flatMap((rule) => {
+        if (rule.type === 'activation' && rule.pointId === uid) return [];
+        if (rule.type === 'relation' && (rule.sourceId === uid || rule.targetId === uid)) return [];
+        if (rule.type === 'count') rule.pointIds = rule.pointIds.filter((pointId) => pointId !== uid);
+        return [rule];
+      });
+      generatedLayouts = null;
+    }
+
+    layoutConfigElement.addEventListener('click', (event) => {
+      const actionTarget = event.target.closest('[data-action]');
+      if (!actionTarget) return;
+      const { action, ruleId } = actionTarget.dataset;
+      if (action === 'generate-layouts') generateLayouts();
+      if (action === 'add-activation-rule') layoutConfig.rules.push(createActivationRule());
+      if (action === 'add-count-rule') layoutConfig.rules.push(createCountRule());
+      if (action === 'add-relation-rule') layoutConfig.rules.push(createRelationRule());
+      if (action === 'remove-rule') layoutConfig.rules = layoutConfig.rules.filter((rule) => rule.id !== ruleId);
+      if (action !== 'generate-layouts') generatedLayouts = null;
+      renderGlobalConfig();
+    });
+
+    layoutConfigElement.addEventListener('change', (event) => {
+      const input = event.target;
+      const layoutField = input.dataset.layoutField;
+      if (layoutField) {
+        const maximum = layoutField === 'maxLayouts' ? 50 : 32;
+        layoutConfig[layoutField] = clamp(Math.round(Number(input.value) || 1), 1, maximum);
+        generatedLayouts = null;
+        renderGlobalConfig();
+        return;
+      }
+      const rule = layoutConfig.rules.find((item) => item.id === input.dataset.ruleId);
+      if (!rule) return;
+      updateRule(rule, input.dataset.ruleField, input.value);
+      renderGlobalConfig();
+    });
+
     document.getElementById('add-spawn').addEventListener('click', () => {
       const groupId = nextId({ type: 'spawn', field: 'groupId' });
-      const entity = { uid: `spawn-${Date.now()}`, type: 'spawn', groupId, x: 50, y: 48 };
+      const entity = { uid: `spawn-${Date.now()}`, type: 'spawn', groupId, x: 50, y: 48, tags: [] };
       entities.push(entity);
       selectedUid = entity.uid;
       render();
@@ -509,7 +941,7 @@
 
     document.getElementById('add-building').addEventListener('click', () => {
       const buildingId = nextId({ type: 'building', field: 'buildingId' });
-      const entity = { uid: `building-${Date.now()}`, type: 'building', buildingId, x: 52, y: 52, w: 13, h: 10 };
+      const entity = { uid: `building-${Date.now()}`, type: 'building', buildingId, x: 52, y: 52, w: 180, h: 80 };
       entities.push(entity);
       selectedUid = entity.uid;
       render();
@@ -518,7 +950,8 @@
     deleteButton.addEventListener('click', () => {
       const index = entities.findIndex((entity) => entity.uid === selectedUid);
       if (index < 0) return;
-      entities.splice(index, 1);
+      const [deletedEntity] = entities.splice(index, 1);
+      if (deletedEntity.type === 'spawn') pruneRulesForDeletedPoint(deletedEntity.uid);
       selectedUid = null;
       render();
     });
