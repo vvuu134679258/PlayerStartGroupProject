@@ -76,7 +76,39 @@
     .map-wrap {
       min-height: 0;
       padding: 18px;
+      display: grid;
+      grid-template-columns: 230px minmax(0, 1fr);
+      gap: 12px;
     }
+
+    .layout-list {
+      min-height: 590px;
+      height: calc(100vh - 105px);
+      overflow-y: auto;
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #141e2e;
+    }
+
+    .layout-list h2 { margin: 0 0 4px; font-size: 14px; }
+    .layout-list .hint { margin: 0 0 12px; color: var(--muted); font-size: 12px; }
+    .layout-list-items { display: grid; gap: 8px; }
+    .layout-list-item {
+      width: 100%;
+      padding: 9px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--surface-2);
+      color: var(--text);
+      text-align: left;
+    }
+    .layout-list-item:hover { border-color: #6c86ae; }
+    .layout-list-item.active { border-color: var(--blue); background: rgba(38, 77, 133, .62); }
+    .layout-list-item strong { display: block; margin-bottom: 4px; font-size: 12px; }
+    .layout-list-item span { color: var(--muted); font-size: 11px; }
+    .layout-list-empty { margin: 12px 0 0; color: var(--muted); font-size: 12px; }
+    .clear-layout-highlight { width: 100%; margin-top: 8px; padding: 6px; font-size: 12px; }
 
     .map {
       position: relative;
@@ -145,6 +177,14 @@
       color: #f3f8ff;
       font-weight: 700;
     }
+
+    .spawn.layout-member {
+      z-index: 2;
+      border-color: #fff0c0;
+      box-shadow: 0 0 0 4px rgba(255, 179, 92, .55), 0 0 18px rgba(255, 179, 92, .4);
+    }
+
+    .spawn.layout-excluded { opacity: .35; }
 
     .spawn .pin {
       position: absolute;
@@ -236,7 +276,7 @@
 
     .field { display: grid; gap: 6px; margin-bottom: 15px; }
     .field label { color: var(--muted); font-size: 12px; }
-    .field input {
+    .field input, .field textarea {
       width: 100%;
       padding: 8px 9px;
       border: 1px solid var(--line);
@@ -245,7 +285,8 @@
       background: var(--surface-2);
       color: var(--text);
     }
-    .field input:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(99, 168, 255, .18); }
+    .field textarea { min-height: 150px; resize: vertical; font: 11px/1.45 ui-monospace, Consolas, monospace; }
+    .field input:focus, .field textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(99, 168, 255, .18); }
 
     .coordinates { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .coordinates .field { margin-bottom: 15px; }
@@ -297,10 +338,16 @@
       font-size: 11px;
     }
     .empty-rule { margin: 10px 0; color: var(--muted); font-size: 12px; }
+    .config-transfer { margin-top: 16px; }
+    .transfer-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+    .transfer-message { min-height: 18px; margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+    .transfer-message.error { color: var(--danger); }
 
     @media (max-width: 760px) {
       .topbar { align-items: flex-start; flex-direction: column; }
       .workspace { grid-template-columns: 1fr; }
+      .map-wrap { grid-template-columns: 1fr; }
+      .layout-list { min-height: 0; height: auto; max-height: 240px; }
       .map { height: 62vh; min-height: 440px; }
       .panel { border-left: 0; border-top: 1px solid var(--line); }
     }
@@ -317,11 +364,13 @@
         <button class="btn primary" id="add-spawn" type="button">＋ 新增出生点</button>
         <button class="btn orange" id="add-building" type="button">＋ 新增建筑物</button>
         <button class="btn danger" id="delete-selected" type="button">删除选中</button>
+        <button class="btn" id="toggle-edit-lock" type="button" aria-pressed="false">锁定编辑</button>
       </div>
     </header>
 
     <section class="workspace">
       <div class="map-wrap">
+        <aside class="layout-list" id="layout-list" aria-live="polite"></aside>
         <div class="map" id="map" aria-label="可编辑地图。拖动出生点或建筑物可改变位置。按住 Ctrl 并滚动鼠标滚轮可缩放地图。">
           <div class="scene" id="scene"></div>
           <div class="legend" aria-hidden="true">
@@ -364,13 +413,20 @@
     const zoomLevel = document.getElementById('zoom-level');
     const properties = document.getElementById('properties');
     const layoutConfigElement = document.getElementById('layout-config');
+    const layoutListElement = document.getElementById('layout-list');
     const deleteButton = document.getElementById('delete-selected');
+    const editLockButton = document.getElementById('toggle-edit-lock');
     const layoutConfig = {
       targetCount: 2,
       maxLayouts: 12,
       rules: []
     };
     let generatedLayouts = null;
+    let selectedLayoutIndex = null;
+    let isEditingLocked = false;
+    let configJsonText = '';
+    let configTransferMessage = '';
+    let configTransferIsError = false;
     let selectedUid = null;
     let dragging = null;
     let panning = null;
@@ -379,6 +435,16 @@
 
     function selectedEntity() {
       return entities.find((entity) => entity.uid === selectedUid) || null;
+    }
+
+    function selectedLayout() {
+      if (!generatedLayouts || !Number.isInteger(selectedLayoutIndex)) return null;
+      return generatedLayouts.layouts[selectedLayoutIndex] || null;
+    }
+
+    function invalidateGeneratedLayouts() {
+      generatedLayouts = null;
+      selectedLayoutIndex = null;
     }
 
     function spawnPoints() {
@@ -433,10 +499,15 @@
     function renderMap() {
       // 先清空并重建对象，保证选中态、编号和坐标始终来自 entities 单一数据源。
       scene.querySelectorAll('[data-entity]').forEach((node) => node.remove());
+      const activeLayout = selectedLayout();
+      const activeLayoutPointIds = new Set(activeLayout ? activeLayout.points.map((point) => point.uid) : []);
       entities.forEach((entity) => {
         const node = document.createElement('button');
         node.type = 'button';
-        node.className = `entity ${entity.type}${entity.uid === selectedUid ? ' selected' : ''}`;
+        const layoutClass = entity.type === 'spawn' && activeLayout
+          ? (activeLayoutPointIds.has(entity.uid) ? ' layout-member' : ' layout-excluded')
+          : '';
+        node.className = `entity ${entity.type}${entity.uid === selectedUid ? ' selected' : ''}${layoutClass}`;
         node.dataset.entity = entity.uid;
         node.setAttribute('aria-label', entityLabel(entity));
         node.style.left = `${entity.x}%`;
@@ -465,7 +536,7 @@
 
     function renderProperties() {
       const entity = selectedEntity();
-      deleteButton.disabled = !entity;
+      deleteButton.disabled = !entity || isEditingLocked;
       if (!entity) {
         properties.innerHTML = '<p class="empty">请选择一个出生点或建筑物。</p>';
         return;
@@ -509,16 +580,18 @@
         tagsInput.addEventListener('input', () => updateSpawnTags(tagsInput.value));
         tagsInput.addEventListener('change', render);
       }
+      if (isEditingLocked) properties.querySelectorAll('input').forEach((input) => { input.disabled = true; });
     }
 
     function updateField(field, rawValue) {
       const entity = selectedEntity();
       const value = Number(rawValue);
-      if (!entity || !Number.isFinite(value)) return;
+      if (!entity || !Number.isFinite(value) || isEditingLocked) return;
       if (field === 'x' || field === 'y') entity[field] = clamp(value, 0, 100);
       else if (field === 'w') entity.w = clamp(value, 48, 640);
       else if (field === 'h') entity.h = clamp(value, 36, 420);
       else entity[field] = Math.max(1, Math.round(value));
+      if (entity.type === 'spawn' && field === 'groupId') invalidateGeneratedLayouts();
       renderMap();
       const validation = document.getElementById('validation');
       if (validation) {
@@ -529,16 +602,47 @@
 
     function updateSpawnTags(rawValue) {
       const entity = selectedEntity();
-      if (!entity || entity.type !== 'spawn') return;
+      if (!entity || entity.type !== 'spawn' || isEditingLocked) return;
       entity.tags = normalizeTags(rawValue);
-      generatedLayouts = null;
+      invalidateGeneratedLayouts();
       renderMap();
+    }
+
+    function renderLayoutList() {
+      if (!generatedLayouts) {
+        layoutListElement.innerHTML = '<h2>合法布局</h2><p class="hint">生成候选布局后，可在这里点击高亮对应出生点。</p><p class="layout-list-empty">暂未生成布局。</p>';
+        return;
+      }
+      if (generatedLayouts.errors.length) {
+        layoutListElement.innerHTML = `<h2>合法布局</h2><p class="hint">请先修正右侧约束配置。</p><p class="layout-list-empty">${generatedLayouts.errors.map(escapeHtml).join('；')}</p>`;
+        return;
+      }
+      if (!generatedLayouts.layouts.length) {
+        layoutListElement.innerHTML = '<h2>合法布局</h2><p class="hint">当前约束下没有可用组合。</p><p class="layout-list-empty">请调整点位或全局约束后重新生成。</p>';
+        return;
+      }
+      const items = generatedLayouts.layouts.map((layout, index) => {
+        const groupIds = layout.points.map((point) => `GroupId ${point.groupId}`).join('、');
+        return `<button class="layout-list-item${index === selectedLayoutIndex ? ' active' : ''}" type="button" data-layout-index="${index}"><strong>方案 ${index + 1}</strong><span>${groupIds}</span></button>`;
+      }).join('');
+      const clearButton = selectedLayout() ? '<button class="btn clear-layout-highlight" type="button" data-clear-layout-highlight="true">清除地图高亮</button>' : '';
+      layoutListElement.innerHTML = `<h2>合法布局</h2><p class="hint">找到 ${generatedLayouts.validCount} 个，显示前 ${generatedLayouts.layouts.length} 个。</p><div class="layout-list-items">${items}</div>${clearButton}`;
+    }
+
+    function updateEditingLockUi() {
+      editLockButton.textContent = isEditingLocked ? '解锁编辑' : '锁定编辑';
+      editLockButton.setAttribute('aria-pressed', String(isEditingLocked));
+      document.getElementById('add-spawn').disabled = isEditingLocked;
+      document.getElementById('add-building').disabled = isEditingLocked;
+      deleteButton.disabled = !selectedEntity() || isEditingLocked;
     }
 
     function render() {
       renderMap();
       renderProperties();
       renderGlobalConfig();
+      renderLayoutList();
+      updateEditingLockUi();
     }
 
     function beginDrag(event) {
@@ -548,6 +652,11 @@
       const uid = event.currentTarget.dataset.entity;
       const entity = entities.find((item) => item.uid === uid);
       if (!entity) return;
+      if (isEditingLocked) {
+        selectedUid = uid;
+        render();
+        return;
+      }
       selectedUid = uid;
       const rect = map.getBoundingClientRect();
       // offset 保留鼠标与对象中心的屏幕距离，拖拽时可避免对象突然跳到鼠标中心。
@@ -616,6 +725,144 @@
 
     function makeRuleId() {
       return `rule-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    }
+
+    function createConfigSnapshot() {
+      return {
+        schemaVersion: 1,
+        entities: entities.map((entity) => entity.type === 'spawn'
+          ? { uid: entity.uid, type: 'spawn', groupId: entity.groupId, x: entity.x, y: entity.y, tags: [...entity.tags] }
+          : { uid: entity.uid, type: 'building', buildingId: entity.buildingId, x: entity.x, y: entity.y, w: entity.w, h: entity.h }),
+        layoutConfig: {
+          targetCount: layoutConfig.targetCount,
+          maxLayouts: layoutConfig.maxLayouts,
+          rules: layoutConfig.rules.map((rule) => ({ ...rule, pointIds: rule.pointIds ? [...rule.pointIds] : undefined, tags: rule.tags ? [...rule.tags] : undefined }))
+        }
+      };
+    }
+
+    function readFiniteNumber(value, label) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) throw new Error(`${label} 必须是有效数字。`);
+      return number;
+    }
+
+    function readPositiveInteger(value, label) {
+      const number = readFiniteNumber(value, label);
+      if (!Number.isInteger(number) || number < 1) throw new Error(`${label} 必须是大于 0 的整数。`);
+      return number;
+    }
+
+    function normalizeImportedEntity(source, index, usedUids, usedSpawnIds, usedBuildingIds) {
+      if (!source || typeof source !== 'object') throw new Error(`第 ${index + 1} 个地图对象无效。`);
+      const uid = String(source.uid || '').trim();
+      if (!uid || usedUids.has(uid)) throw new Error(`第 ${index + 1} 个地图对象缺少唯一 uid。`);
+      usedUids.add(uid);
+      const x = clamp(readFiniteNumber(source.x, `${uid} 的 X`), 0, 100);
+      const y = clamp(readFiniteNumber(source.y, `${uid} 的 Y`), 0, 100);
+
+      if (source.type === 'spawn') {
+        const groupId = readPositiveInteger(source.groupId, `${uid} 的 GroupId`);
+        if (usedSpawnIds.has(groupId)) throw new Error(`GroupId ${groupId} 重复。`);
+        usedSpawnIds.add(groupId);
+        return { uid, type: 'spawn', groupId, x, y, tags: normalizeTags(source.tags || []) };
+      }
+
+      if (source.type === 'building') {
+        const buildingId = readPositiveInteger(source.buildingId, `${uid} 的建筑物编号`);
+        if (usedBuildingIds.has(buildingId)) throw new Error(`建筑物编号 ${buildingId} 重复。`);
+        usedBuildingIds.add(buildingId);
+        return {
+          uid,
+          type: 'building',
+          buildingId,
+          x,
+          y,
+          w: clamp(readFiniteNumber(source.w, `${uid} 的宽度`), 48, 640),
+          h: clamp(readFiniteNumber(source.h, `${uid} 的高度`), 36, 420)
+        };
+      }
+      throw new Error(`${uid} 的对象类型必须是 spawn 或 building。`);
+    }
+
+    function normalizeImportedRule(source, index, validSpawnUids) {
+      if (!source || typeof source !== 'object') throw new Error(`第 ${index + 1} 条约束无效。`);
+      const id = String(source.id || makeRuleId());
+      const ensurePoint = (uid, label) => {
+        if (!validSpawnUids.has(uid)) throw new Error(`第 ${index + 1} 条约束的 ${label} 不存在。`);
+        return uid;
+      };
+
+      if (source.type === 'activation') {
+        const mode = source.mode === 'blocked' ? 'blocked' : 'required';
+        return { id, type: 'activation', mode, pointId: ensurePoint(source.pointId, '出生点') };
+      }
+
+      if (source.type === 'count') {
+        const scope = source.scope === 'tags' ? 'tags' : 'points';
+        const comparison = ['exactly', 'atLeast', 'atMost'].includes(source.comparison) ? source.comparison : 'exactly';
+        const value = clamp(Math.round(readFiniteNumber(source.value, `第 ${index + 1} 条约束的数量`)), 0, 32);
+        if (scope === 'tags') {
+          const tags = normalizeTags(source.tags || []);
+          if (!tags.length) throw new Error(`第 ${index + 1} 条 Tag 数量约束没有填写 Tag。`);
+          return { id, type: 'count', scope, pointIds: [], invalidGroupIds: [], tags, comparison, value };
+        }
+        const pointIds = [...new Set(Array.isArray(source.pointIds) ? source.pointIds.map(String) : [])];
+        if (!pointIds.length) throw new Error(`第 ${index + 1} 条点位数量约束没有选择出生点。`);
+        pointIds.forEach((uid) => ensurePoint(uid, '出生点'));
+        return { id, type: 'count', scope, pointIds, invalidGroupIds: [], tags: [], comparison, value };
+      }
+
+      if (source.type === 'relation') {
+        const relation = ['exclusive', 'bound', 'requires', 'disables'].includes(source.relation) ? source.relation : 'exclusive';
+        const sourceId = ensurePoint(source.sourceId, '起点');
+        const targetId = ensurePoint(source.targetId, '目标');
+        if (sourceId === targetId) throw new Error(`第 ${index + 1} 条点位关系的起点和目标不能相同。`);
+        return { id, type: 'relation', relation, sourceId, targetId };
+      }
+
+      throw new Error(`第 ${index + 1} 条约束类型无效。`);
+    }
+
+    function exportConfigJson() {
+      configJsonText = JSON.stringify(createConfigSnapshot(), null, 2);
+      configTransferMessage = '已生成完整配置 JSON，可复制保存；需要恢复时粘贴后点击“导入 JSON”。';
+      configTransferIsError = false;
+    }
+
+    function importConfigJson(rawValue) {
+      try {
+        if (!String(rawValue).trim()) throw new Error('请先粘贴配置 JSON。');
+        const snapshot = JSON.parse(rawValue);
+        if (!snapshot || typeof snapshot !== 'object') throw new Error('配置 JSON 的根对象无效。');
+        if (snapshot.schemaVersion !== undefined && snapshot.schemaVersion !== 1) throw new Error(`不支持的配置版本：${snapshot.schemaVersion}。`);
+        if (!Array.isArray(snapshot.entities)) throw new Error('配置缺少 entities 数组。');
+
+        const usedUids = new Set();
+        const usedSpawnIds = new Set();
+        const usedBuildingIds = new Set();
+        const nextEntities = snapshot.entities.map((entity, index) => normalizeImportedEntity(entity, index, usedUids, usedSpawnIds, usedBuildingIds));
+        const sourceLayout = snapshot.layoutConfig || {};
+        const validSpawnUids = new Set(nextEntities.filter((entity) => entity.type === 'spawn').map((entity) => entity.uid));
+        const nextRules = Array.isArray(sourceLayout.rules)
+          ? sourceLayout.rules.map((rule, index) => normalizeImportedRule(rule, index, validSpawnUids))
+          : [];
+        const nextTargetCount = clamp(readPositiveInteger(sourceLayout.targetCount ?? 1, '每组激活点数'), 1, 32);
+        const nextMaxLayouts = clamp(readPositiveInteger(sourceLayout.maxLayouts ?? 12, '最大生成方案数'), 1, 50);
+
+        entities.splice(0, entities.length, ...nextEntities);
+        layoutConfig.targetCount = nextTargetCount;
+        layoutConfig.maxLayouts = nextMaxLayouts;
+        layoutConfig.rules = nextRules;
+        selectedUid = null;
+        invalidateGeneratedLayouts();
+        configJsonText = JSON.stringify(createConfigSnapshot(), null, 2);
+        configTransferMessage = '配置已导入。你可以直接生成合法布局进行测试。';
+        configTransferIsError = false;
+      } catch (error) {
+        configTransferMessage = `导入失败：${error.message}`;
+        configTransferIsError = true;
+      }
     }
 
     function pointByUid(uid) {
@@ -803,6 +1050,7 @@
       const errors = configErrors();
       if (errors.length) {
         generatedLayouts = { errors, layouts: [], examined: 0, validCount: 0, reasons: new Map() };
+        selectedLayoutIndex = null;
         return;
       }
 
@@ -846,6 +1094,7 @@
 
       visit(0, []);
       generatedLayouts = { errors: [], layouts, examined, validCount, reasons, truncated };
+      selectedLayoutIndex = null;
     }
 
     function renderLayoutResults() {
@@ -881,7 +1130,26 @@
           <button class="btn" type="button" data-action="add-relation-rule">＋ 点位关系</button>
         </div>
         <div>${layoutConfig.rules.length ? layoutConfig.rules.map(renderRuleCard).join('') : '<p class="empty-rule">尚无额外约束：将从全部出生点中生成指定数量的组合。</p>'}</div>
-        ${renderLayoutResults()}`;
+        ${renderLayoutResults()}
+        <div class="rule-card config-transfer">
+          <div class="rule-card-head"><strong>保存 / 恢复测试配置</strong></div>
+          <p class="rule-description">JSON 包含出生点、建筑物、Tags 和全部全局布局约束。导入不会自动写入文件。</p>
+          <div class="field"><label for="config-json">配置 JSON</label><textarea id="config-json" spellcheck="false" placeholder="点击“生成 JSON”后复制，或在此粘贴已有配置。">${escapeHtml(configJsonText)}</textarea></div>
+          <div class="transfer-actions">
+            <button class="btn" type="button" data-action="export-config">生成 JSON</button>
+            <button class="btn primary" type="button" data-action="import-config">导入 JSON</button>
+          </div>
+          <p class="transfer-message${configTransferIsError ? ' error' : ''}">${escapeHtml(configTransferMessage)}</p>
+        </div>`;
+      applyGlobalEditingLock();
+    }
+
+    function applyGlobalEditingLock() {
+      layoutConfigElement.querySelectorAll('input, select').forEach((element) => { element.disabled = isEditingLocked; });
+      layoutConfigElement.querySelectorAll('textarea').forEach((element) => { element.readOnly = isEditingLocked; });
+      layoutConfigElement.querySelectorAll('button[data-action]').forEach((button) => {
+        button.disabled = isEditingLocked && !['generate-layouts', 'export-config'].includes(button.dataset.action);
+      });
     }
 
     function updateRule(rule, field, rawValue) {
@@ -889,7 +1157,7 @@
       else if (field === 'tags') rule.tags = normalizeTags(rawValue);
       else if (field === 'value') rule.value = clamp(Math.round(Number(rawValue) || 0), 0, 32);
       else rule[field] = rawValue;
-      generatedLayouts = null;
+      invalidateGeneratedLayouts();
     }
 
     function pruneRulesForDeletedPoint(uid) {
@@ -899,55 +1167,101 @@
         if (rule.type === 'count') rule.pointIds = rule.pointIds.filter((pointId) => pointId !== uid);
         return [rule];
       });
-      generatedLayouts = null;
+      invalidateGeneratedLayouts();
     }
 
     layoutConfigElement.addEventListener('click', (event) => {
       const actionTarget = event.target.closest('[data-action]');
       if (!actionTarget) return;
       const { action, ruleId } = actionTarget.dataset;
+      if (isEditingLocked && !['generate-layouts', 'export-config'].includes(action)) {
+        configTransferMessage = '编辑已锁定。解锁后才能修改或导入配置。';
+        configTransferIsError = true;
+        renderGlobalConfig();
+        return;
+      }
+      if (action === 'export-config') {
+        exportConfigJson();
+        renderGlobalConfig();
+        return;
+      }
+      if (action === 'import-config') {
+        const jsonInput = layoutConfigElement.querySelector('#config-json');
+        importConfigJson(jsonInput ? jsonInput.value : '');
+        render();
+        return;
+      }
       if (action === 'generate-layouts') generateLayouts();
       if (action === 'add-activation-rule') layoutConfig.rules.push(createActivationRule());
       if (action === 'add-count-rule') layoutConfig.rules.push(createCountRule());
       if (action === 'add-relation-rule') layoutConfig.rules.push(createRelationRule());
       if (action === 'remove-rule') layoutConfig.rules = layoutConfig.rules.filter((rule) => rule.id !== ruleId);
-      if (action !== 'generate-layouts') generatedLayouts = null;
-      renderGlobalConfig();
+      if (action !== 'generate-layouts') invalidateGeneratedLayouts();
+      render();
     });
 
     layoutConfigElement.addEventListener('change', (event) => {
+      if (isEditingLocked) return;
       const input = event.target;
       const layoutField = input.dataset.layoutField;
       if (layoutField) {
         const maximum = layoutField === 'maxLayouts' ? 50 : 32;
         layoutConfig[layoutField] = clamp(Math.round(Number(input.value) || 1), 1, maximum);
-        generatedLayouts = null;
-        renderGlobalConfig();
+        invalidateGeneratedLayouts();
+        render();
         return;
       }
       const rule = layoutConfig.rules.find((item) => item.id === input.dataset.ruleId);
       if (!rule) return;
       updateRule(rule, input.dataset.ruleField, input.value);
-      renderGlobalConfig();
+      render();
+    });
+
+    layoutListElement.addEventListener('click', (event) => {
+      const clearButton = event.target.closest('[data-clear-layout-highlight]');
+      if (clearButton) {
+        selectedLayoutIndex = null;
+        renderMap();
+        renderLayoutList();
+        return;
+      }
+      const layoutButton = event.target.closest('[data-layout-index]');
+      if (!layoutButton || !generatedLayouts) return;
+      const layoutIndex = Number(layoutButton.dataset.layoutIndex);
+      if (!Number.isInteger(layoutIndex) || !generatedLayouts.layouts[layoutIndex]) return;
+      selectedLayoutIndex = layoutIndex;
+      renderMap();
+      renderLayoutList();
+    });
+
+    editLockButton.addEventListener('click', () => {
+      isEditingLocked = !isEditingLocked;
+      dragging = null;
+      render();
     });
 
     document.getElementById('add-spawn').addEventListener('click', () => {
+      if (isEditingLocked) return;
       const groupId = nextId({ type: 'spawn', field: 'groupId' });
       const entity = { uid: `spawn-${Date.now()}`, type: 'spawn', groupId, x: 50, y: 48, tags: [] };
       entities.push(entity);
       selectedUid = entity.uid;
+      invalidateGeneratedLayouts();
       render();
     });
 
     document.getElementById('add-building').addEventListener('click', () => {
+      if (isEditingLocked) return;
       const buildingId = nextId({ type: 'building', field: 'buildingId' });
       const entity = { uid: `building-${Date.now()}`, type: 'building', buildingId, x: 52, y: 52, w: 180, h: 80 };
       entities.push(entity);
       selectedUid = entity.uid;
+      invalidateGeneratedLayouts();
       render();
     });
 
     deleteButton.addEventListener('click', () => {
+      if (isEditingLocked) return;
       const index = entities.findIndex((entity) => entity.uid === selectedUid);
       if (index < 0) return;
       const [deletedEntity] = entities.splice(index, 1);
